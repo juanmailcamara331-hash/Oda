@@ -6,60 +6,51 @@
 // servidor de Netlify, reenvía la petición con la API key que llega en
 // la cabecera x-api-key, y devuelve la respuesta tal cual al cliente.
 //
-// El frontend debe llamar a POST /api/claude con el mismo body y la
-// misma cabecera x-api-key que antes usaba para api.anthropic.com.
+// Formato clásico de Netlify Functions (exports.handler) — funciona
+// sin necesidad de declarar el proyecto como módulo ES, a diferencia
+// del formato con "export default" + "config".
 
-export default async (req) => {
-  if (req.method !== 'POST') {
-    return new Response(JSON.stringify({ error: { message: 'Método no permitido' } }), {
-      status: 405,
-      headers: { 'Content-Type': 'application/json' }
-    });
+exports.handler = async function (event) {
+  if (event.httpMethod !== 'POST') {
+    return {
+      statusCode: 405,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ error: { message: 'Método no permitido' } })
+    };
   }
 
-  const apiKey = req.headers.get('x-api-key');
+  const headers = event.headers || {};
+  const apiKey = headers['x-api-key'] || headers['X-Api-Key'] || headers['X-API-KEY'];
   if (!apiKey) {
-    return new Response(JSON.stringify({ error: { message: 'Falta la cabecera x-api-key' } }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' }
-    });
+    return {
+      statusCode: 400,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ error: { message: 'Falta la cabecera x-api-key' } })
+    };
   }
 
-  let body;
   try {
-    body = await req.text();
-  } catch (e) {
-    return new Response(JSON.stringify({ error: { message: 'Body inválido' } }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  }
-
-  let anthropicResp;
-  try {
-    anthropicResp = await fetch('https://api.anthropic.com/v1/messages', {
+    const anthropicResp = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'x-api-key': apiKey,
-        'anthropic-version': req.headers.get('anthropic-version') || '2023-06-01'
+        'anthropic-version': headers['anthropic-version'] || '2023-06-01'
       },
-      body
+      body: event.body
     });
+
+    const text = await anthropicResp.text();
+    return {
+      statusCode: anthropicResp.status,
+      headers: { 'Content-Type': 'application/json' },
+      body: text
+    };
   } catch (e) {
-    return new Response(JSON.stringify({ error: { message: 'No se pudo contactar con la API de Anthropic: ' + e.message } }), {
-      status: 502,
-      headers: { 'Content-Type': 'application/json' }
-    });
+    return {
+      statusCode: 502,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ error: { message: 'No se pudo contactar con la API de Anthropic: ' + e.message } })
+    };
   }
-
-  const responseText = await anthropicResp.text();
-  return new Response(responseText, {
-    status: anthropicResp.status,
-    headers: { 'Content-Type': 'application/json' }
-  });
-};
-
-export const config = {
-  path: '/api/claude'
 };
